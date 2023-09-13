@@ -1,0 +1,18 @@
+{
+    // matlab配置
+    // matlab启动文件路径
+    "matlab.matlabpath": "D:\\Matlab2022b\bin\\matlab.exe",
+    // lint工具路径 （该工具用于语法检查）
+    "matlab.mlintpath": "D:\\Matlab2022b\bin\\win64\\mlint.exe",
+    // 提示编码
+    "matlab.linterEncoding": "gb2312",
+    // .m文件编码
+    "[matlab]": {
+        "files.encoding": "gb2312",
+        "files.autoGuessEncoding": false,
+    },
+    // .m文件关联
+    "files.associations": {
+        "*.m": "matlab"
+    },
+}
