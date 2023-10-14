@@ -5,6 +5,8 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 import seaborn as sns
+from scipy.cluster.hierarchy import dendrogram, linkage
+from scipy.spatial.distance import pdist
 from scipy.stats import gmean
 from sklearn.preprocessing import StandardScaler
 
@@ -99,6 +101,30 @@ def find_optimal_k_silhouette(data, max_k,ispro):
 
     return optimal_k
     
+# 层次聚类
+def hierarchical_clustering(data):
+    """
+    执行层次聚类并可视化聚类树状图。
+
+    参数：
+    data: 包含要聚类的数据的DataFrame。
+    linkage_method (str): 链接方法包括'single', 'complete', 'average'等，默认为'ward'。
+    返回值：
+    无返回值，绘制聚类树状图。
+    """
+    data = pd.DataFrame(data)
+    # 计算数据的距离矩阵
+    distances = pdist(data)
+    # 构建层次聚类
+    linkage_matrix = linkage(distances, method='ward')
+    # 绘制树状图
+    plt.figure(figsize=(12, 8))
+    dendrogram(linkage_matrix, labels=data.index, orientation='top', leaf_rotation=90)
+    plt.title('层次聚类')
+    plt.xlabel('鸢尾花数据样本')
+    plt.ylabel('距离')
+    plt.show()
+
 class KMeans:
     """
     K-Means 聚类算法的实现。
@@ -114,14 +140,14 @@ class KMeans:
     inertia_ (float): 损失函数值。
     silhouette_score_ (float): 轮廓系数值。
     """
-    def __init__(self, n_clusters=2, max_iters=1000, random_state=None):
+    def __init__(self, n_clusters=2, max_iters=1000, random_state=4):
         self.n_clusters = n_clusters
         self.max_iters = max_iters
         self.random_state = random_state
         self.labels_ = None
         self.cluster_centers_ = None
-        self.inertia_ = None
-        self.silhouette_score_ = None  # 添加 silhouette_score_ 属性
+        self.inertia_ = None           # 添加簇内平方和属性
+        self.silhouette_score_ = None  # 添加轮廓系数属性
     
     def fit(self, X):
         """
@@ -140,6 +166,7 @@ class KMeans:
         self.cluster_centers_ = X[random_indices]
 
         inertia_list = []
+        self.iterations = 0
         start_time = time.time()  # 记录开始时间
 
         for _ in range(self.max_iters):
@@ -148,6 +175,7 @@ class KMeans:
             new_centers = np.array([X[self.labels_ == k].mean(axis=0) for k in range(self.n_clusters)])
             if np.all(self.cluster_centers_ == new_centers):
                 break
+            self.iterations += 1
             self.cluster_centers_ = new_centers
             inertia = self.compute_inertia(X)
             inertia_list.append(inertia)  # 记录每次迭代的Inertia
@@ -157,11 +185,10 @@ class KMeans:
         self.inertia_ = self.compute_inertia(X)
         self.silhouette_score_ = self.compute_silhouette_score(X)
 
-        self.iterations = _ + 1  # 迭代步数
         self.convergence_time = end_time - start_time  # 收敛时间
 
         # 可视化每次迭代的Inertia
-        plt.plot(range(1, self.iterations), inertia_list, marker='o', linestyle='-')
+        plt.plot(range(1, self.iterations + 1), inertia_list, marker='o', linestyle='-')
         plt.xlabel("迭代次数")
         plt.ylabel("簇内平方和")
         plt.title("K-means迭代情况")
@@ -187,7 +214,8 @@ class KMeans:
         # 使用 K-means++ 初始化中心点
         self.cluster_centers_ = self.initialize_centers(X)
         
-        inertia_list = []
+        inertia_list_pro = []
+        self.iterations_pro = 0
         start_time = time.time()  # 记录开始时间
         for _ in range(self.max_iters):
             distances = np.linalg.norm(X[:, np.newaxis, :] - self.cluster_centers_, axis=2)
@@ -195,22 +223,22 @@ class KMeans:
             new_centers = np.array([X[self.labels_ == k].mean(axis=0) for k in range(self.n_clusters)])
             if np.all(self.cluster_centers_ == new_centers):
                 break
+            self.iterations_pro += 1
             self.cluster_centers_ = new_centers
             inertia = self.compute_inertia(X)
-            inertia_list.append(inertia)  # 记录每次迭代的Inertia
+            inertia_list_pro.append(inertia)  # 记录每次迭代的Inertia
         
         end_time = time.time()  # 记录结束时间
 
         self.inertia_ = self.compute_inertia(X)
         self.silhouette_score_ = self.compute_silhouette_score(X)
 
-        self.iterations_pro = _ + 1  # 迭代步数
         self.convergence_time_pro = end_time - start_time  # 收敛时间
         # 可视化每次迭代的Inertia
-        plt.plot(range(1, self.iterations_pro), inertia_list, marker='o', linestyle='-')
+        plt.plot(range(1, self.iterations_pro + 1), inertia_list_pro, marker='o', linestyle='-')
         plt.xlabel("迭代次数")
         plt.ylabel("簇内平方和")
-        plt.title("K-means迭代情况")
+        plt.title("K-meansPlus迭代情况")
         plt.grid(True)
         plt.show()
 
@@ -297,6 +325,8 @@ class KMeans:
 if __name__ == "__main__":
     
     data_df = pd.read_csv('机器学习\实验\实验四\iris.csv')
+    print(data_df.info())
+    print(data_df.isna().sum())
     X = data_df.iloc[1:,1:5].to_numpy()
     
     # 创建标准化器
@@ -347,15 +377,18 @@ if __name__ == "__main__":
     # 显示图形
     plt.show()
 
+    ######################
+    # 层次聚类
 
-    # 使用肘部法则选取最佳的k值
-    max_k = 15
-    k = find_optimal_k(X_scaled, max_k,False)
-    k_pro = find_optimal_k(X_scaled, max_k,True)
-    # 使用轮廓系数选择最佳的K值
-    max_k_silhouette = 15  # 设置尝试的最大K值
-    k_silhouette = find_optimal_k_silhouette(X_scaled, max_k_silhouette,False)
-    k_silhouette_pro = find_optimal_k_silhouette(X_scaled, max_k_silhouette,True)
+
+    # # 使用肘部法则选取最佳的k值
+    # max_k = 15
+    # k = find_optimal_k(X_scaled, max_k,False)
+    # k_pro = find_optimal_k(X_scaled, max_k,True)
+    # # 使用轮廓系数选择最佳的K值
+    # max_k_silhouette = 15  # 设置尝试的最大K值
+    # k_silhouette = find_optimal_k_silhouette(X_scaled, max_k_silhouette,False)
+    # k_silhouette_pro = find_optimal_k_silhouette(X_scaled, max_k_silhouette,True)
     # 降到二维进行可视化
     pca = PCA(n_components=2)
     X_pca = pca.fit_transform(X_scaled)
@@ -378,10 +411,15 @@ if __name__ == "__main__":
     
     plt.show()
 
+    ##############################################
+    # 层次聚类查看数据聚类情况
+    hierarchical_clustering(X_pca,)
+
+    k = k_pro = 8
     # 3. 运行K-means(传统kmeans)
     kmeans = KMeans(n_clusters=k, random_state=42)
     kmeans.fit(X_pca)
-    
+    print(f'kmeans的迭代时间为：{kmeans.convergence_time:.6f}')
     plt.figure(figsize=(8, 6))
     for cluster_label in set(kmeans.labels_):
         cluster_points = X_pca[kmeans.labels_ == cluster_label]
@@ -400,14 +438,14 @@ if __name__ == "__main__":
     # 3. 运行K-means(kmeans++)
     kmeans = KMeans(n_clusters=k_pro, random_state=42)
     kmeans.fit_pro(X_pca)
-    
+    print(f'kmeans++的迭代时间为：{kmeans.convergence_time_pro:.6f}')
     plt.figure(figsize=(8, 6))
     for cluster_label in set(kmeans.labels_):
         cluster_points = X_pca[kmeans.labels_ == cluster_label]
         plt.scatter(cluster_points[:, 0], cluster_points[:, 1], s=50, label=f'第 {cluster_label + 1} 类')
 
     plt.scatter(kmeans.cluster_centers_[:, 0], kmeans.cluster_centers_[:, 1], c='red', marker='x', s=200, label='聚类中心')
-    plt.title("K-Means 聚类")
+    plt.title("K-MeansPlus 聚类")
     plt.legend(loc='upper right')
     plt.show()
 

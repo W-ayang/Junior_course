@@ -70,7 +70,6 @@ class LanguageModel(object):
         # 计算 n-gram 和 (n-1)-gram 的计数
         n_gram_counts = nltk.FreqDist(n_grams)
         m_gram_counts = nltk.FreqDist(m_grams)
-        print(m_gram_counts.freq(('<s>', '<s>')))
         
         # 应用拉普拉斯平滑来计算概率
         smoothed_probabilities = {}
@@ -141,55 +140,6 @@ class LanguageModel(object):
         print(f"句子{sentence}'的概率为: {probability}")
 	
     # 给出前n-1个标记，预测下一个合适的标记
-    def _best_candidate(self, prev, i, without=[]):
-        # prev意思是句子的 n-1 个标记
-        """Choose the most likely next token given the previous (n-1) tokens.
-
-        If selecting the first word of the sentence (after the SOS tokens),
-        the i'th best candidate will be selected, to create variety.
-        If no candidates are found, the EOS token is returned with probability 1.
-
-        Args:
-            prev (tuple of str): the previous n-1 tokens of the sentence.
-            i (int): which candidate to select if not the most probable one.
-            without (list of str): tokens to exclude from the candidates list.
-        Returns:
-            A tuple with the next most probable token and its corresponding probability.
-
-        """
-        if len(prev) != self.n - 1:
-            raise ValueError(f"Expected (n-1) tokens in 'prev', but got {len(prev)} tokens.")
-
-        # 检查我们是否选择 SOS 标记后的第一个单词
-        first_word = prev == 0
-
-        # 获取以给定 (n-1) 个标记“prev”开头的所有 n-gram
-        candidates = [ngram for ngram in self.ngram_probabilities if ngram[:-1] == prev]
-
-        # 从候选者中删除“without”中的标记
-        candidates = [ngram for ngram in candidates if ngram[-1] not in without]
-
-        # 按概率降序对候选者进行排序
-        candidates.sort(key=lambda ngram: -self.ngram_probabilities[ngram])
-
-        # 如果没有找到候选者，则以概率 1 返回 EOS 代币
-        if not candidates:
-            return (EOS, 1.0)
-        
-        # 如果选择第一个单词，则选择第 i 个最佳候选单词
-        if first_word:
-            if i >= len(candidates):
-                raise ValueError(f"Value of 'i' exceeds the number of candidates ({len(candidates)}).")
-            selected_candidate = candidates[i]
-        else:
-            selected_candidate = candidates[0]
-
-        # 获取被选中的候选者的概率
-        probability = self.ngram_probabilities[selected_candidate]
-
-        return (selected_candidate[-1], probability)
-
-
     def generate_sentences(self, num, min_len=12, max_len=24):
         """Generate num random sentences using the language model.
 
@@ -204,38 +154,56 @@ class LanguageModel(object):
         Yields:
             A tuple with the generated sentence and the combined probability
             (in log-space) of all of its n-grams.
-
         """
         for _ in range(num):
-            sentence = ['<s>', '<s>'] # 初始化待生成句子
+            sentence = ['<s>', '<s>']  # 初始化待生成句子
             prob = 0.0  # 初始化概率
+            eos_added = False  # 用于标记是否已经添加了EOS
             while True:
                 if len(sentence) >= max_len:
-                    sentence.append(EOS)  
+                    if not eos_added:
+                        sentence.append(EOS)
                     yield (' '.join(sentence), prob)
                     break
 
-                # 选倒数前n - 1个单词
+                # 选倒数前 n - 1 个单词
                 context = tuple(sentence[-(self.n - 1):])
-                # 选择最有可能的next，且确保不重复生成
-                next_token, next_prob = self._best_candidate(context, 0, without=sentence)
-                # 如果下一个token是结束符那就直接结束
-                if next_token == EOS:
-                    sentence.append(EOS)
+                
+                # 获取所有候选的下一个单词
+                candidates = self._get_candidate_words(context, without=sentence)
+                
+                # 随机选择下一个单词
+                if candidates:
+                    selected_candidate = random.choice(candidates)
+                    next_token = selected_candidate[0]
+                    next_prob = selected_candidate[1]
+                    # 将预测的单词添加到句子中
+                    sentence.append(next_token)
+                    # 更新句子概率（对数相加）
+                    prob += math.log(next_prob)
+                    # 句子长度满足要求就可以结束了
+                    if (len(sentence) - 3) >= min_len and random.random() < 0.2:
+                        if not eos_added:
+                            sentence.append(EOS)
+                            eos_added = True
+                        yield (' '.join(sentence), prob)
+                        break
+                else:
+                    # 如果没有候选词，以概率 1 返回EOS，只添加一次
+                    if not eos_added:
+                        sentence.append(EOS)
+                        eos_added = True
                     yield (' '.join(sentence), prob)
                     break
 
-                # 将预测的单词添加到句子当中
-                sentence.append(next_token)
-
-                # 更新句子概率（对数使× -> +）
-                prob += math.log(next_prob)
-
-                # 句子长度满足要求就可以结束了
-                if len(sentence) >= min_len and random.random() < 0.2:
-                    sentence.append(EOS)  
-                    yield (' '.join(sentence), prob)
-                    break
+    def _get_candidate_words(self, context, without=[]):
+        # 获取以给定 (n-1) 个标记 "context" 开头的所有 n-gram
+        candidates = [ngram for ngram in self.ngram_probabilities if ngram[:-1] == context]
+        # 从候选者中删除 "without" 中的标记
+        candidates = [ngram for ngram in candidates if ngram[-1] not in without and ngram[-1] not in ["<s>", "</s>", "<UNK>"]]
+        # 返回候选的下一个单词和概率
+        candidate_words = [(ngram[-1], self.ngram_probabilities[ngram]) for ngram in candidates]
+        return candidate_words
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("N-gram Language Model")
@@ -255,27 +223,26 @@ if __name__ == '__main__':
 
     print("Loading {}-gram model...".format(args.n))
     lm = LanguageModel(train, args.n, laplace=args.laplace)
-    # print("Vocabulary size: {}".format(len(lm.vocab)))
+    print("Vocabulary size: {}".format(len(lm.vocab)))
 
     #######################################################################################
-    # # N-gram概率
-    # ngram_test = [
-    #     "at a time","at time a","in the end"
-    # ]
-    # ngram_test = [tuple(ngram.split()) for ngram in ngram_test]
-
-    # [lm.prob_ngram(ngram) for ngram in ngram_test]
+    # N-gram概率
+    ngram_test = [
+        "at a time","at time a","in the end"
+    ]
+    ngram_test = [tuple(ngram.split()) for ngram in ngram_test]
+    [lm.prob_ngram(ngram) for ngram in ngram_test]
 
     
     # ########################################################################################
-    # # 生成给定句子的概率
-    # sentences_test = "the company said it has agreed to sell its shares in a statement"
-    # lm.prob_sent(sentences_test)
+    # 生成给定句子的概率
+    sentences_test = "the company said it has agreed to sell its shares in a statement"
+    lm.prob_sent(sentences_test)
 
     ########################################################################################
     # 创造句子
     print("Generating sentences...")
 
-    sentences_generator = lm.generate_sentences(num=10, min_len=12, max_len=24)
+    sentences_generator = lm.generate_sentences(num=10, min_len=10, max_len=24)
     for sentence, prob in sentences_generator:
-        print(f"句子：{sentence}，对数概率：{prob}")
+        print(f"句子：{sentence}，概率：{math.exp(prob)}")
